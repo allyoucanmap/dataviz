@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+
+<html>
+
+	<head>
+		<title>foodmap</title>
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<style> 
+			body {font-family: "Trebuchet MS", Helvetica, sans-serif; background-color:#333333; margin: 0;} 
+		
+		</style>
+		
+		<canvas id="food" width="500" height="500" style="position:absolute;"> </canvas>
+		
+	</head>
+	
+	<body>
+		
+		<script type="text/javascript">
+		
+			var x_pos = 0;
+			var y_pos = 0;
+			var scale_side = 0;
+			var side = 0;
+			var bar_side = 0;
+			var lenght_scale = 0;
+			var font_size = 0;
+			var margin = 0;
+			var cont_side = 0;
+			var current_value = {};
+			var current_name = "";
+			
+			var pixel_unit = "";
+			const frame = {sw:{lon:9.1406404689353,lat:45.4357498766815}};
+			const frame_mercator = {sw: wgs84_to_mercator(frame.sw)};
+			const canvas = document.getElementById("food");
+			
+			var values = {  };
+			const data_name = ["european","asian","middle_eastern","south_american","african"];
+
+			canvas.onclick = function(event){
+			
+				x_pos = event.pageX - this.getBoundingClientRect().left;
+				y_pos = event.pageY - this.getBoundingClientRect().top;
+				
+				if(y_pos < side
+				&& x_pos < side){
+				
+					if(x_pos > side){
+						x_pos = side;
+					}
+					if(y_pos > side){
+						y_pos = side;
+					}
+
+					draw_canvas();
+				}else if(y_pos > side){
+				
+					set_map_data(click_selector(canvas.getAttribute("width")));
+				}
+			};
+			
+			canvas.onmousemove = function(event){
+		
+				y_pos = event.pageY - this.getBoundingClientRect().top;
+		
+				if(y_pos > side){
+					
+					x_pos = event.pageX - this.getBoundingClientRect().left;
+					draw_selector();
+					y_pos = side/2;
+					x_pos = side/2
+				}else{
+					draw_selector();
+				}
+			}
+			
+			const ctx = canvas.getContext("2d");
+			const img = new Image();
+			img.onload = function(){
+				draw_canvas();
+			}
+			img.src = "img/base.png";
+			
+			set_map_data(data_name[0]);
+			
+			function set_map_data(name){
+				x_pos = side/2;
+				y_pos = side/2;
+				if(values[name] == null){
+				
+					values[name] = {};
+					values[name].a = [];
+			
+					get_csv("data/"+name+".txt",",",
+					function(a){
+			
+						var v = 0;
+						if(a[0] != ""){ v = parseFloat(a[0]); }	
+						var mercator = wgs84_to_mercator({lon: parseFloat(a[1]), lat: parseFloat(a[2])});
+						values[name].a.push({lon: parseFloat(a[1]), lat: parseFloat(a[2]), v: v, x:mercator.x, y:mercator.y});
+				
+					},
+					function(){
+				
+						values[name].ne = {lon:max_value(values[name].a,"lon"), lat: max_value(values[name].a,"lat")};
+						values[name].sw = {lon:min_value(values[name].a,"lon"), lat: min_value(values[name].a,"lat")};
+						values[name].val = {max:max_value(values[name].a,"v"), min: min_value(values[name].a,"v")};
+						values[name].delta = values[name].a[1].x - values[name].a[0].x;
+	
+						current_value = values[name];
+						current_name = name;
+						draw_canvas();
+	
+					});
+				}else{
+					current_value = values[name];
+					current_name = name;
+					draw_canvas();
+				}
+				
+				
+			}
+			
+			update_size();
+			
+			window.addEventListener("resize",function(){
+				update_size();
+			},false);
+			
+			function update_size(){
+			
+				canvas.setAttribute("width",window.innerWidth);
+				canvas.setAttribute("height",window.innerHeight);
+				cont_side = canvas.getAttribute("width") * 9/16;
+				if(cont_side > canvas.getAttribute("height")){
+					cont_side = canvas.getAttribute("height");
+				}
+				pixel_unit = 10000/cont_side;
+				frame_mercator.ne = {x: frame_mercator.sw.x + cont_side * pixel_unit,y: frame_mercator.sw.y + cont_side * pixel_unit};
+				frame.ne = mercator_to_wgs84(frame_mercator.ne);
+				x_pos = cont_side/2;
+				y_pos = cont_side/2;
+				draw_canvas();
+			}
+
+			function draw_canvas(){
+			
+				var o = current_value;
+				var width = cont_side*16/9;
+				var height = cont_side;
+				
+				scale_side = (o.delta/pixel_unit)*2;
+				
+				if(!isNaN(scale_side)){
+				
+					side = cont_side - scale_side;
+				
+					bar_side = ((width - side - scale_side)/2);
+					lenght_scale = Math.floor(side/scale_side);
+					font_size = bar_side/16;
+					margin = (side - (lenght_scale*scale_side))/2;
+					
+					ctx.fillStyle = "#000000";
+					ctx.fillRect(0,0,canvas.getAttribute("width"),canvas.getAttribute("height"));
+					
+					ctx.clearRect(0, 0, width, height);
+					ctx.drawImage( img, 0, 0, side, side );
+				
+					for(var i in o.a){
+			
+						if(o.a[i].v > 0){
+					
+							if(o.a[i].x >= frame_mercator.sw.x-o.delta
+							&& o.a[i].x <= frame_mercator.ne.x+o.delta
+							&& o.a[i].y >= frame_mercator.sw.y-o.delta
+							&& o.a[i].y <= frame_mercator.ne.y+o.delta){
+								var x = map(o.a[i].x,  frame_mercator.sw.x, frame_mercator.ne.x, 0, side);
+								var y = map(o.a[i].y, frame_mercator.sw.y, frame_mercator.ne.y, side, 0);
+					
+								var op = map(o.a[i].v, o.val.max, 0,0.75,0);
+			
+								ctx.fillStyle = "rgba("+(0) +","+(255)+","+(252)+","+op+")";
+								ctx.fillRect(x, y, (o.delta/pixel_unit)-2,  (o.delta/pixel_unit)-2); 
+							}
+						}
+					}
+					
+					line(ctx, x_pos, 0, x_pos, side,"#FFFF00");
+					line(ctx, 0, y_pos, side, y_pos, "#FF8800");
+				
+					var x_m_pos = map(x_pos, 0, side, frame_mercator.sw.x, frame_mercator.ne.x);
+					var y_m_pos = map(y_pos, side, 0, frame_mercator.sw.y, frame_mercator.ne.y);
+				
+					var array_x = [];
+					var array_y = [];
+				
+				
+					for(var i in o.a){
+						if(o.a[i].x >= frame_mercator.sw.x-o.delta
+						&& o.a[i].x <= frame_mercator.ne.x+o.delta
+						&& o.a[i].y >= frame_mercator.sw.y-o.delta
+						&& o.a[i].y <= frame_mercator.ne.y+o.delta){
+					
+							if(o.a[i].x > x_m_pos
+							&& o.a[i].x <= x_m_pos + o.delta){
+								array_x.push({ p:o.a[i].y, v: o.a[i].v});
+							}
+					
+							if(o.a[i].y <= y_m_pos
+							&& o.a[i].y > y_m_pos - o.delta){
+								array_y.push({ p: o.a[i].x, v: o.a[i].v});
+							}
+						}
+					
+					}
+			
+					graph( ctx, scale_side+side, 0, bar_side, side, "NORTH", "SOUTH", array_x,{min: frame_mercator.ne.y, max: frame_mercator.sw.y},"#FFFF00");
+					graph( ctx, scale_side+side + bar_side, 0, bar_side, side, "WEST", "EAST", array_y,{min: frame_mercator.sw.x,max: frame_mercator.ne.x},"#FF8800");
+				
+				
+					ctx.fillStyle = "#333333";
+					ctx.fillRect(side,0,scale_side,side);
+				
+					ctx.font =  font_size +"px 'Courier New', Courier, monospace";
+				
+					for(var i = 0; i < lenght_scale; i++){
+				
+						var op = map(i, 0, lenght_scale,0.75,0);
+						ctx.fillStyle = "rgba(0,255,252,"+op+")";
+						ctx.fillRect(side+2,margin+2+i*scale_side,scale_side-4,scale_side-4);
+						ctx.fillStyle = "#777777";
+						if(i == 0){
+							ctx.fillText( o.val.max.toFixed(1) , side+2, margin+2+i*scale_side+font_size);
+						}
+						if(i == lenght_scale-1){
+							ctx.fillText( "0.0" , side+2, margin+2+i*scale_side+font_size);
+						}
+					}
+					
+					ctx.fillStyle = "#F2F2F2";
+					ctx.fillText( "MILANO : "+current_name.replace("_"," ").toUpperCase()+" CUISINE" , font_size, font_size);
+					
+					draw_selector();
+					ctx.beginPath();
+					ctx.arc(side-scale_side*0.75, side-scale_side*0.75, scale_side/2, 0, 2 * Math.PI, false);
+					ctx.lineWidth = 1;
+					ctx.strokeStyle = '#888888';
+					ctx.stroke();
+					
+					line(ctx, side-scale_side*0.75, side-scale_side*0.75, side-scale_side*0.75, side-scale_side*0.75-scale_side/2,"#DDDDDD");
+					
+				}
+			}
+			
+			function draw_selector(){
+			
+				var width = cont_side*16/9;
+				var side_sel = width/data_name.length;
+				
+				ctx.clearRect(0,side,width,scale_side);
+				ctx.fillStyle = "#333333";
+				ctx.fillRect(0,side,width,scale_side);
+				
+				for(var i = 0; i < data_name.length; i++ ){
+					ctx.fillStyle = "#484848";
+					if(x_pos > 2 + i* side_sel
+					&& x_pos < 2 + i* side_sel + side_sel
+					&& y_pos > side){
+						ctx.fillStyle = "#AAAAAA";
+					}
+					ctx.fillRect(2 + i* side_sel, 2+side, side_sel-4, scale_side-4);
+					ctx.fillStyle = "#DDDDDD";
+					ctx.fillText( data_name[i].replace("_"," ").toUpperCase() , font_size*0.5+2 + i* side_sel, 2+side+font_size*1.25);
+				}
+			}
+			
+			function click_selector(width){
+			
+				var side_sel = width/data_name.length;
+				
+				for(var i = 0; i < data_name.length; i++ ){
+					
+					if(x_pos > 2 + i* side_sel
+					&& x_pos < 2 + i* side_sel + side_sel
+					&& y_pos > side){
+						return data_name[i];
+					}
+				}
+			}
+			
+			
+			
+			function graph(ctx, x, y, w, h, top, bottom, a, f, color){
+				
+				var font_size = w/16;
+				
+				ctx.fillStyle = "#333333";
+				ctx.fillRect(x, y, w, h );
+				
+				ctx.font =  font_size +"px 'Courier New', Courier, monospace";
+				
+				line(ctx, x, font_size*1.5, x + w * 0.8, font_size*1.5,"#444444"); 
+				line(ctx, x, h - font_size * 1.75, x + w * 0.8, h - font_size * 1.75,"#444444"); 
+				
+				for(var i = 0;i < 1; i+= 0.2){
+				
+					var text = 0.5*i;
+					
+					line(ctx, x + w * i, 0, x + w * i, h,"#383838"); 
+					
+					if(i >= 0.2){
+						ctx.fillStyle="#888888";
+						ctx.fillText( text.toFixed(2) , x + w * i, font_size * 3);
+						ctx.fillText( text.toFixed(2) , x + w * i, h - font_size * 2.5);
+					}
+					
+				}
+				
+				ctx.fillText( top, x + w/2, font_size );
+				ctx.fillText( bottom, x + w/2, h - font_size/2 );
+				
+				
+				for(var i = 0;i < a.length; i++){
+				
+					var p = map(a[i].p,f.min, f.max, 0, h);
+					var v = map(a[i].v, 0, 0.5, 0, w);
+				
+					line(ctx, x, p, x + v, p,"#525252"); 
+				}
+				
+				ctx.beginPath();
+				
+				for(var i = 0;i < a.length-1; i++){
+					
+					var p1 = map(a[i].p,f.min, f.max, 0, h);
+					var p2 = map(a[i+1].p,f.min, f.max, 0, h);
+					var v1 =  map(a[i].v, 0, 0.5, 0, w);
+					var v2 = map(a[i+1].v, 0, 0.5, 0, w);
+					
+					ctx.moveTo(x + v1, p1);
+					ctx.lineTo(x + v2, p2);
+
+				}
+				
+				ctx.closePath();
+				ctx.strokeStyle = color;
+				ctx.stroke();
+			}
+		
+			function line(ctx,x1,y1,x2,y2,color){
+				ctx.beginPath();
+				ctx.moveTo(x1,y1);
+				ctx.lineTo(x2,y2);
+				ctx.closePath();
+				ctx.strokeStyle = color;
+				ctx.stroke();
+			}
+			
+			function min_value(a,key){
+				return Math.min.apply(null, a.map(function(obj) { return obj[key]; }));
+			}
+			
+			function max_value(a,key){
+				return Math.max.apply(null, a.map(function(obj) { return obj[key]; }));
+			}
+				
+			function get_csv(path, comma, doHere,draw){
+				var xhttp = new XMLHttpRequest();
+				xhttp.onreadystatechange = function() {
+					if (xhttp.readyState == 4 && xhttp.status == 200) {
+						var array_value = xhttp.responseText.split(/\r?\n/);
+						for(var i in array_value){
+							if(array_value[i] != array_value[array_value.length-1]){
+								var array_point = array_value[i].split(comma);
+								if(doHere != null){ doHere(array_point); }
+							}
+							
+						}
+						draw();
+					}
+				};
+				xhttp.open("GET", path, true);
+				xhttp.send();
+			}
+			
+			function deg_to_rad(d){return d*(Math.PI/180.0);}
+			function rad_to_deg(r){return r/(Math.PI/180.0);}
+			function wgs84_to_mercator(coord){ return{x: deg_to_rad(coord.lon) * 6378137.0, y: (Math.log(Math.tan(Math.PI/4 + deg_to_rad(coord.lat) / 2.0)) *  6378137.0)};}
+			function mercator_to_wgs84(coord){ return{ lat: rad_to_deg(2.0 * Math.atan(Math.exp(coord.y / 6378137.0)) - Math.PI/2), lon: rad_to_deg(coord.x / 6378137.0)}}
+			function map(value, v1, v2, v3, v4) {return v3 + (v4 - v3) * ((value - v1) / (v2 - v1));}
+			function setPixelUnit(zoom){return (2 * Math.PI * 6378137.0) / Math.pow(2,(zoom + 8)); }
+		
+		</script>
+	
+	</body>
+</html>
